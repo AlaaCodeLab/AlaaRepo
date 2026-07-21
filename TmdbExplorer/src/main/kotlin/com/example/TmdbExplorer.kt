@@ -10,11 +10,10 @@ class TmdbExplorer : MainAPI() {
     override var mainUrl = "https://api.themoviedb.org/3"
     override var name = "TMDB Explorer"
     override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries)
-    override var lang = "en"
+    override var lang = "ar"
     override val hasMainPage = true
     override val hasQuickSearch = false
 
-    // 🎯 1. وضع المفتاح مباشرة لضمان العمل في GitHub Actions
     private val apiKey = "231dddd0aa034e0379b327f40b9c251b"
     private val imageBase = "https://image.tmdb.org/t/p/w500"
 
@@ -28,9 +27,7 @@ class TmdbExplorer : MainAPI() {
         @JsonProperty("title") val title: String? = null,
         @JsonProperty("name") val name: String? = null,
         @JsonProperty("poster_path") val posterPath: String? = null,
-        @JsonProperty("media_type") val mediaType: String? = null,
-        @JsonProperty("release_date") val releaseDate: String? = null,
-        @JsonProperty("first_air_date") val firstAirDate: String? = null
+        @JsonProperty("media_type") val mediaType: String? = null
     )
 
     data class TmdbGenre(@JsonProperty("name") val name: String)
@@ -74,7 +71,15 @@ class TmdbExplorer : MainAPI() {
 
     // ---------- Helpers ----------
     private fun TmdbItem.toSearchResponse(defaultIsMovie: Boolean = true): SearchResponse? {
-        val isMovie = if (mediaType != null) mediaType == "movie" else defaultIsMovie
+        // تجاهل الأشخاص (Actors) إذا ظهروا في trending
+        if (mediaType == "person") return null
+
+        val isMovie = when (mediaType) {
+            "movie" -> true
+            "tv" -> false
+            else -> defaultIsMovie
+        }
+
         val displayName = title ?: name ?: return null
         val poster = posterPath?.let { imageBase + it }
         val itemUrl = "$mainUrl/movie_or_tv/${if (isMovie) "movie" else "tv"}/$id"
@@ -107,23 +112,32 @@ class TmdbExplorer : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val separator = if (request.data.contains("?")) "&" else "?"
         val url = "$mainUrl/${request.data}${separator}api_key=$apiKey&page=$page&language=ar-SA"
-        val res = app.get(url).text
-        val parsed = tryParseJson<TmdbListResponse>(res)
 
-        // 🎯 معالجة نوع المحتوى الافتراضي بناءً على رابط الطلب (في حال غياب media_type)
-        val isTvRequest = request.data.startsWith("tv/")
-        val list = parsed?.results?.mapNotNull { it.toSearchResponse(defaultIsMovie = !isTvRequest) } ?: emptyList()
-        return newHomePageResponse(request.name, list)
+        return try {
+            val res = app.get(url).text
+            val parsed = tryParseJson<TmdbListResponse>(res)
+
+            val isTvRequest = request.data.contains("tv/") || request.data.contains("tv?")
+            val list = parsed?.results?.mapNotNull {
+                it.toSearchResponse(defaultIsMovie = !isTvRequest)
+            } ?: emptyList()
+
+            newHomePageResponse(request.name, list)
+        } catch (e: Exception) {
+            newHomePageResponse(request.name, emptyList())
+        }
     }
 
     // ---------- Search ----------
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/search/multi?api_key=$apiKey&query=$query&include_adult=false&language=ar-SA"
-        val res = app.get(url).text
-        val parsed = tryParseJson<TmdbListResponse>(res) ?: return emptyList()
-        return parsed.results
-            .filter { it.mediaType == "movie" || it.mediaType == "tv" }
-            .mapNotNull { it.toSearchResponse() }
+        return try {
+            val res = app.get(url).text
+            val parsed = tryParseJson<TmdbListResponse>(res) ?: return emptyList()
+            parsed.results.mapNotNull { it.toSearchResponse() }
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 
     // ---------- Load details ----------
@@ -134,56 +148,60 @@ class TmdbExplorer : MainAPI() {
         val id = match.groupValues[2]
 
         val detailUrl = "$mainUrl/$type/$id?api_key=$apiKey&append_to_response=credits&language=ar-SA"
-        val res = app.get(detailUrl).text
-        val detail = tryParseJson<TmdbDetail>(res) ?: return null
 
-        val displayName = detail.title ?: detail.name ?: "Unknown"
-        val poster = detail.posterPath?.let { imageBase + it }
-        val background = detail.backdropPath?.let { imageBase + it }
-        val actors = detail.credits?.cast?.take(15)?.map {
-            ActorData(
-                Actor(it.name, it.profilePath?.let { p -> imageBase + p }),
-                roleString = it.character
-            )
-        } ?: emptyList()
+        return try {
+            val res = app.get(detailUrl).text
+            val detail = tryParseJson<TmdbDetail>(res) ?: return null
 
-        val tags = detail.genres.map { it.name } + detail.productionCompanies.map { it.name }
-        val year = (detail.releaseDate ?: detail.firstAirDate)?.take(4)?.toIntOrNull()
+            val displayName = detail.title ?: detail.name ?: "Unknown"
+            val poster = detail.posterPath?.let { imageBase + it }
+            val background = detail.backdropPath?.let { imageBase + it }
+            val actors = detail.credits?.cast?.take(15)?.map {
+                ActorData(
+                    Actor(it.name, it.profilePath?.let { p -> imageBase + p }),
+                    roleString = it.character
+                )
+            } ?: emptyList()
 
-        val calculatedScore = detail.voteAverage?.let { Score.from(it, 10) }
+            val tags = detail.genres.map { it.name } + detail.productionCompanies.map { it.name }
+            val year = (detail.releaseDate ?: detail.firstAirDate)?.take(4)?.toIntOrNull()
+            val calculatedScore = detail.voteAverage?.let { Score.from(it, 10) }
 
-        return if (type == "movie") {
-            newMovieLoadResponse(displayName, url, TvType.Movie, url) {
-                this.posterUrl = poster
-                this.backgroundPosterUrl = background
-                this.plot = detail.overview
-                this.tags = tags
-                this.year = year
-                this.score = calculatedScore
-                this.duration = detail.runtime
-                this.actors = actors
-            }
-        } else {
-            val episodes = detail.seasons.map { season ->
-                newEpisode(url) {
-                    this.name = season.name ?: "Season ${season.seasonNumber}"
-                    this.season = season.seasonNumber
-                    this.episode = 1
+            if (type == "movie") {
+                newMovieLoadResponse(displayName, url, TvType.Movie, url) {
+                    this.posterUrl = poster
+                    this.backgroundPosterUrl = background
+                    this.plot = detail.overview
+                    this.tags = tags
+                    this.year = year
+                    this.score = calculatedScore
+                    this.duration = detail.runtime
+                    this.actors = actors
+                }
+            } else {
+                val episodes = detail.seasons.map { season ->
+                    newEpisode(url) {
+                        this.name = season.name ?: "Season ${season.seasonNumber}"
+                        this.season = season.seasonNumber
+                        this.episode = 1
+                    }
+                }
+                newTvSeriesLoadResponse(displayName, url, TvType.TvSeries, episodes) {
+                    this.posterUrl = poster
+                    this.backgroundPosterUrl = background
+                    this.plot = detail.overview
+                    this.tags = tags
+                    this.year = year
+                    this.score = calculatedScore
+                    this.actors = actors
                 }
             }
-            newTvSeriesLoadResponse(displayName, url, TvType.TvSeries, episodes) {
-                this.posterUrl = poster
-                this.backgroundPosterUrl = background
-                this.plot = detail.overview
-                this.tags = tags
-                this.year = year
-                this.score = calculatedScore
-                this.actors = actors
-            }
+        } catch (e: Exception) {
+            null
         }
     }
 
-    // ---------- No playback: explore-only provider ----------
+    // ---------- No playback ----------
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
