@@ -10,7 +10,8 @@ class TmdbExplorer : MainAPI() {
     override var mainUrl = "https://api.themoviedb.org/3"
     override var name = "TMDB Explorer"
     override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries)
-    override var lang = "ar"
+    // 🎯 ضبط لغة الإضافة إلى الإنجليزية
+    override var lang = "en"
     override val hasMainPage = true
     override val hasQuickSearch = false
 
@@ -71,7 +72,6 @@ class TmdbExplorer : MainAPI() {
 
     // ---------- Helpers ----------
     private fun TmdbItem.toSearchResponse(defaultIsMovie: Boolean = true): SearchResponse? {
-        // تجاهل الأشخاص (Actors) إذا ظهروا في trending
         if (mediaType == "person") return null
 
         val isMovie = when (mediaType) {
@@ -95,15 +95,15 @@ class TmdbExplorer : MainAPI() {
         }
     }
 
-    // ---------- Main page ----------
+    // ---------- Main page (English Titles) ----------
     override val mainPage = mainPageOf(
-        "trending/all/day" to "الأكثر رواجاً اليوم",
-        "movie/popular" to "أفلام شائعة",
-        "tv/popular" to "مسلسلات شائعة",
-        "movie/top_rated" to "أفلام الأعلى تقييماً",
-        "tv/top_rated" to "مسلسلات الأعلى تقييماً",
-        "movie/now_playing" to "أفلام تُعرض الآن",
-        "movie/upcoming" to "أفلام قادمة",
+        "trending/all/day" to "Trending Today",
+        "movie/popular" to "Popular Movies",
+        "tv/popular" to "Popular TV Shows",
+        "movie/top_rated" to "Top Rated Movies",
+        "tv/top_rated" to "Top Rated TV Shows",
+        "movie/now_playing" to "Now Playing Movies",
+        "movie/upcoming" to "Upcoming Movies",
         "discover/movie?with_companies=420" to "Marvel Studios",
         "discover/movie?with_companies=3" to "Pixar",
         "discover/movie?with_companies=174" to "Warner Bros. Pictures"
@@ -111,7 +111,8 @@ class TmdbExplorer : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val separator = if (request.data.contains("?")) "&" else "?"
-        val url = "$mainUrl/${request.data}${separator}api_key=$apiKey&page=$page&language=ar-SA"
+        // 🎯 جلب البيانات بالإنجليزية عبر en-US
+        val url = "$mainUrl/${request.data}${separator}api_key=$apiKey&page=$page&language=en-US"
 
         return try {
             val res = app.get(url).text
@@ -130,7 +131,7 @@ class TmdbExplorer : MainAPI() {
 
     // ---------- Search ----------
     override suspend fun search(query: String): List<SearchResponse> {
-        val url = "$mainUrl/search/multi?api_key=$apiKey&query=$query&include_adult=false&language=ar-SA"
+        val url = "$mainUrl/search/multi?api_key=$apiKey&query=$query&include_adult=false&language=en-US"
         return try {
             val res = app.get(url).text
             val parsed = tryParseJson<TmdbListResponse>(res) ?: return emptyList()
@@ -147,7 +148,7 @@ class TmdbExplorer : MainAPI() {
         val type = match.groupValues[1]
         val id = match.groupValues[2]
 
-        val detailUrl = "$mainUrl/$type/$id?api_key=$apiKey&append_to_response=credits&language=ar-SA"
+        val detailUrl = "$mainUrl/$type/$id?api_key=$apiKey&append_to_response=credits&language=en-US"
 
         return try {
             val res = app.get(detailUrl).text
