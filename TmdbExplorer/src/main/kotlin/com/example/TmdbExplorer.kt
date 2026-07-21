@@ -14,7 +14,8 @@ class TmdbExplorer : MainAPI() {
     override val hasMainPage = true
     override val hasQuickSearch = false
 
-    private val apiKey = BuildConfig.TMDB_API_KEY
+    // 🎯 1. وضع المفتاح مباشرة لضمان العمل في GitHub Actions
+    private val apiKey = "231dddd0aa034e0379b327f40b9c251b"
     private val imageBase = "https://image.tmdb.org/t/p/w500"
 
     // ---------- Data classes ----------
@@ -72,11 +73,12 @@ class TmdbExplorer : MainAPI() {
     )
 
     // ---------- Helpers ----------
-    private fun TmdbItem.toSearchResponse(): SearchResponse? {
-        val isMovie = (mediaType ?: "movie") == "movie"
+    private fun TmdbItem.toSearchResponse(defaultIsMovie: Boolean = true): SearchResponse? {
+        val isMovie = if (mediaType != null) mediaType == "movie" else defaultIsMovie
         val displayName = title ?: name ?: return null
         val poster = posterPath?.let { imageBase + it }
         val itemUrl = "$mainUrl/movie_or_tv/${if (isMovie) "movie" else "tv"}/$id"
+
         return if (isMovie) {
             newMovieSearchResponse(displayName, itemUrl, TvType.Movie) {
                 this.posterUrl = poster
@@ -104,16 +106,19 @@ class TmdbExplorer : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val separator = if (request.data.contains("?")) "&" else "?"
-        val url = "$mainUrl/${request.data}${separator}api_key=$apiKey&page=$page&language=en-US"
+        val url = "$mainUrl/${request.data}${separator}api_key=$apiKey&page=$page&language=ar-SA"
         val res = app.get(url).text
         val parsed = tryParseJson<TmdbListResponse>(res)
-        val list = parsed?.results?.mapNotNull { it.toSearchResponse() } ?: emptyList()
+
+        // 🎯 معالجة نوع المحتوى الافتراضي بناءً على رابط الطلب (في حال غياب media_type)
+        val isTvRequest = request.data.startsWith("tv/")
+        val list = parsed?.results?.mapNotNull { it.toSearchResponse(defaultIsMovie = !isTvRequest) } ?: emptyList()
         return newHomePageResponse(request.name, list)
     }
 
     // ---------- Search ----------
     override suspend fun search(query: String): List<SearchResponse> {
-        val url = "$mainUrl/search/multi?api_key=$apiKey&query=$query&include_adult=false&language=en-US"
+        val url = "$mainUrl/search/multi?api_key=$apiKey&query=$query&include_adult=false&language=ar-SA"
         val res = app.get(url).text
         val parsed = tryParseJson<TmdbListResponse>(res) ?: return emptyList()
         return parsed.results
@@ -128,7 +133,7 @@ class TmdbExplorer : MainAPI() {
         val type = match.groupValues[1]
         val id = match.groupValues[2]
 
-        val detailUrl = "$mainUrl/$type/$id?api_key=$apiKey&append_to_response=credits&language=en-US"
+        val detailUrl = "$mainUrl/$type/$id?api_key=$apiKey&append_to_response=credits&language=ar-SA"
         val res = app.get(detailUrl).text
         val detail = tryParseJson<TmdbDetail>(res) ?: return null
 
@@ -145,7 +150,6 @@ class TmdbExplorer : MainAPI() {
         val tags = detail.genres.map { it.name } + detail.productionCompanies.map { it.name }
         val year = (detail.releaseDate ?: detail.firstAirDate)?.take(4)?.toIntOrNull()
 
-        // 🎯 ضبط معلمات Score.from بطلب القيمة و maxScore صراحةً
         val calculatedScore = detail.voteAverage?.let { Score.from(it, 10) }
 
         return if (type == "movie") {
