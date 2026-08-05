@@ -16,13 +16,21 @@ class CinemaBoxProvider : MainAPI() {
         TvType.TvSeries
     )
 
+    private val commonHeaders = mapOf(
+        "User-Agent" to "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36",
+        "Accept" to "application/json, text/plain, */*",
+        "app-version" to "1.10.1",
+        "device-id" to "995266",
+        "Referer" to mainUrl
+    )
+
     // ================= 1. الصفحة الرئيسية (Main Page) =================
     override suspend fun getMainPage(
         page: Int,
         request: MainPageRequest
     ): HomePageResponse {
         val url = "$mainUrl/api/v4/home"
-        val response = app.get(url).parsedSafe<HomeResponse>()
+        val response = app.get(url, headers = commonHeaders).parsedSafe<HomeResponse>()
         val homeSections = ArrayList<HomePageList>()
 
         response?.sections?.forEach { section ->
@@ -35,11 +43,11 @@ class CinemaBoxProvider : MainAPI() {
 
                 items.add(
                     if (tvType == TvType.TvSeries) {
-                        newTvSeriesSearchResponse(title, "$mainUrl/api/v4/shows/$id", tvType) {
+                        newTvSeriesSearchResponse(title, "$mainUrl/api/v4/shows/episodes/$id/files", tvType) {
                             this.posterUrl = poster
                         }
                     } else {
-                        newMovieSearchResponse(title, "$mainUrl/api/v4/shows/$id", tvType) {
+                        newMovieSearchResponse(title, "$mainUrl/api/v4/shows/episodes/$id/files", tvType) {
                             this.posterUrl = poster
                         }
                     }
@@ -56,7 +64,7 @@ class CinemaBoxProvider : MainAPI() {
     // ================= 2. البحث (Search) =================
     override suspend fun search(query: String): List<SearchResponse> {
         val url = "$mainUrl/api/v4/search?term=$query&page_number=1&page_size=20"
-        val response = app.get(url).parsedSafe<SearchApiResponse>()
+        val response = app.get(url, headers = commonHeaders).parsedSafe<SearchApiResponse>()
 
         return response?.results?.mapNotNull { item ->
             val title = item.title ?: return@mapNotNull null
@@ -65,12 +73,12 @@ class CinemaBoxProvider : MainAPI() {
             val tvType = if (item.type == "SERIES") TvType.TvSeries else TvType.Movie
 
             if (tvType == TvType.TvSeries) {
-                newTvSeriesSearchResponse(title, "$mainUrl/api/v4/shows/$id", tvType) {
+                newTvSeriesSearchResponse(title, "$mainUrl/api/v4/shows/episodes/$id/files", tvType) {
                     this.posterUrl = poster
                     this.year = item.year
                 }
             } else {
-                newMovieSearchResponse(title, "$mainUrl/api/v4/shows/$id", tvType) {
+                newMovieSearchResponse(title, "$mainUrl/api/v4/shows/episodes/$id/files", tvType) {
                     this.posterUrl = poster
                     this.year = item.year
                 }
@@ -80,48 +88,46 @@ class CinemaBoxProvider : MainAPI() {
 
     // ================= 3. تفاصيل العمل (Load Details) =================
     override suspend fun load(url: String): LoadResponse {
-        val extractedId = url.substringAfterLast("/")
-        val response = app.get(url).parsedSafe<ShowDetailResponse>()
-        val info = response?.postInfo ?: throw ErrorLoadingException("Failed to load show details")
+        val id = url.split("/").getOrNull(url.split("/").size - 2)
+            ?.takeIf { it.all { char -> char.isDigit() } }
+            ?: url.substringAfterLast("/")
+            .substringBefore("?")
+            .substringBefore(".json")
 
-        val title = info.title ?: ""
-        val poster = info.image
-        val background = info.backgroundImage
-        val description = info.description
-        val year = info.releaseDate?.toLongOrNull()?.let {
-            Calendar.getInstance().apply { timeInMillis = it }.get(Calendar.YEAR)
-        }
-        val ratingScore = info.rating?.value?.let { Score.from(it, 10) }
-        val isMovie = info.type == "MOVIE"
+        val filesUrl = if (url.contains("/api/v4/shows/episodes/")) url else "$mainUrl/api/v4/shows/episodes/$id/files"
+        val responseText = app.get(filesUrl, headers = commonHeaders).text
+        val filesResponse = tryParseJson<FilesApiResponse>(responseText)
+            ?: throw ErrorLoadingException("Failed to load show details")
 
-        // البديل في حال غياب episodeId: استخدام id الخاص بالعمل المباشر
-        val playableDataId = info.episodeId?.toString() ?: info.id?.toString() ?: extractedId
+        val title = filesResponse.showTitle ?: "Cinema Box"
+        val poster = filesResponse.image
+        val isMovie = filesResponse.showType == "MOVIE" || filesResponse.episodes.isNullOrEmpty()
 
         return if (isMovie) {
-            newMovieLoadResponse(title, url, TvType.Movie, playableDataId) {
+            newMovieLoadResponse(title, url, TvType.Movie, filesUrl) {
                 this.posterUrl = poster
-                this.backgroundPosterUrl = background
-                this.plot = description
-                this.year = year
-                this.tags = info.genres
-                this.score = ratingScore
             }
         } else {
             val episodesList = mutableListOf<Episode>()
-            
-            if (info.episodeId != null) {
+            filesResponse.episodes?.forEachIndexed { index, ep ->
+                val epId = ep.id?.toString() ?: id
+                val epNum = ep.episodeNumber ?: (index + 1)
+                val seasonNum = ep.seasonNumber ?: 1
+                val epName = ep.title ?: "الحلقة $epNum"
+
                 episodesList.add(
-                    newEpisode(info.episodeId.toString()) {
-                        this.name = "$title - الحلقة 1"
-                        this.season = 1
-                        this.episode = 1
-                        this.posterUrl = poster
+                    newEpisode("$mainUrl/api/v4/shows/episodes/$epId/files") {
+                        this.name = epName
+                        this.season = seasonNum
+                        this.episode = epNum
+                        this.posterUrl = ep.image ?: poster
                     }
                 )
-            } else {
-                // ضمان وجود حلقة واحدة قابلة للتشغيل كحد أدنى بأسلوب سينمانا
+            }
+
+            if (episodesList.isEmpty()) {
                 episodesList.add(
-                    newEpisode(playableDataId) {
+                    newEpisode(filesUrl) {
                         this.name = "$title - الحلقة 1"
                         this.season = 1
                         this.episode = 1
@@ -132,11 +138,6 @@ class CinemaBoxProvider : MainAPI() {
 
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodesList) {
                 this.posterUrl = poster
-                this.backgroundPosterUrl = background
-                this.plot = description
-                this.year = year
-                this.tags = info.genres
-                this.score = ratingScore
             }
         }
     }
@@ -150,35 +151,18 @@ class CinemaBoxProvider : MainAPI() {
     ): Boolean {
         if (data.isBlank() || data == "null") return false
 
-        val streamUrl = if (data.contains("http")) data else "$mainUrl/api/v4/episodes/$data"
-        val response = app.get(streamUrl, headers = mapOf("Referer" to mainUrl))
-        val responseText = response.text
-        var episodeData = tryParseJson<EpisodeStreamResponse>(responseText)
-
-        // محاولة إضافية (Fallback): إذا لم ترجع النقطة الرئيسية بيانات، نجرب نقطة العرض المباشرة
-        if (episodeData == null && !data.contains("http")) {
-            val fallbackUrl = "$mainUrl/api/v4/shows/$data"
-            val fallbackText = app.get(fallbackUrl, headers = mapOf("Referer" to mainUrl)).text
-            episodeData = tryParseJson<EpisodeStreamResponse>(fallbackText)
-        }
+        val fetchUrl = if (data.contains("http")) data else "$mainUrl/api/v4/shows/episodes/$data/files"
+        val responseText = app.get(fetchUrl, headers = commonHeaders).text
+        val filesResponse = tryParseJson<FilesApiResponse>(responseText)
 
         var foundLinks = false
 
-        // 1. فحص السيرفرات الخارجية (Servers)
-        episodeData?.servers?.forEach { server ->
-            val linkUrl = server.url ?: server.link ?: return@forEach
-            if (linkUrl.isNotBlank()) {
-                loadExtractor(linkUrl, subtitleCallback, callback)
-                foundLinks = true
-            }
-        }
-
-        // 2. فحص مصادر الفيديوهات المباشرة (Sources)
-        episodeData?.sources?.forEach { source ->
-            val linkUrl = source.file ?: source.url ?: return@forEach
+        // 1. جلب الفيديوهات المباشرة بالدقات المختلفة (1080p, 720p, 480p)
+        filesResponse?.videos?.forEach { video ->
+            val linkUrl = video.url ?: return@forEach
             if (linkUrl.isNotBlank()) {
                 val isHls = linkUrl.contains(".m3u8")
-                val qualityName = source.quality ?: "Default"
+                val qualityName = video.quality ?: "Default"
                 callback(
                     newExtractorLink(
                         source = name,
@@ -193,22 +177,16 @@ class CinemaBoxProvider : MainAPI() {
             }
         }
 
-        // 3. فحص روابط الفيديو المباشرة الفردية (url / stream_url / video_url / link)
-        val directUrl = episodeData?.streamUrl ?: episodeData?.url ?: episodeData?.videoUrl ?: episodeData?.link
-        if (!directUrl.isNullOrBlank()) {
-            val isHls = directUrl.contains(".m3u8")
-            callback(
-                newExtractorLink(
-                    source = name,
-                    name = name,
-                    url = directUrl,
-                    type = if (isHls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                )
+        // 2. جلب الترجمات المتاحة
+        filesResponse?.subtitles?.forEach { sub ->
+            val subUrl = sub.vtt ?: sub.srt ?: return@forEach
+            val langName = sub.language ?: "ar"
+            subtitleCallback(
+                SubtitleFile(langName, subUrl)
             )
-            foundLinks = true
         }
 
-        // 4. Fallback بأسلوب سينمانا: البحث بـ Regex عن أي روابط HLS (.m3u8) أو MP4 داخل النص
+        // 3. Fallback بأسلوب سينمانا: البحث بـ Regex عن أي روابط MP4 أو M3U8 داخل النص
         if (!foundLinks && responseText.isNotBlank()) {
             val regex = Regex("""https?://[^\s"'<>]+?\.(?:m3u8|mp4)[^\s"'<>]*""")
             regex.findAll(responseText).forEach { match ->
@@ -257,46 +235,35 @@ class CinemaBoxProvider : MainAPI() {
         @JsonProperty("image") val image: String?
     )
 
-    data class ShowDetailResponse(
-        @JsonProperty("post_info") val postInfo: PostInfo?
-    )
-
-    data class RatingInfo(
-        @JsonProperty("value") val value: Double?
-    )
-
-    data class PostInfo(
+    data class FilesApiResponse(
         @JsonProperty("id") val id: Int?,
-        @JsonProperty("title") val title: String?,
-        @JsonProperty("type") val type: String?,
+        @JsonProperty("show_id") val showId: Int?,
+        @JsonProperty("show_title") val showTitle: String?,
+        @JsonProperty("show_type") val showType: String?,
         @JsonProperty("image") val image: String?,
-        @JsonProperty("background_image") val backgroundImage: String?,
-        @JsonProperty("description") val description: String?,
-        @JsonProperty("release_date") val releaseDate: String?,
-        @JsonProperty("episode_id") val episodeId: Int?,
-        @JsonProperty("genres") val genres: List<String>?,
-        @JsonProperty("rating") val rating: RatingInfo?
+        @JsonProperty("videos") val videos: List<VideoSource>?,
+        @JsonProperty("subtitles") val subtitles: List<SubtitleSource>?,
+        @JsonProperty("episodes") val episodes: List<CinemaBoxEpisode>?
     )
 
-    data class EpisodeStreamResponse(
-        @JsonProperty("servers") val servers: List<StreamServer>?,
-        @JsonProperty("sources") val sources: List<StreamSource>?,
-        @JsonProperty("url") val url: String?,
-        @JsonProperty("stream_url") val streamUrl: String?,
-        @JsonProperty("video_url") val videoUrl: String?,
-        @JsonProperty("link") val link: String?
+    data class CinemaBoxEpisode(
+        @JsonProperty("id") val id: Int?,
+        @JsonProperty("episode_number") val episodeNumber: Int?,
+        @JsonProperty("season_number") val seasonNumber: Int?,
+        @JsonProperty("title") val title: String?,
+        @JsonProperty("image") val image: String?,
+        @JsonProperty("videos") val videos: List<VideoSource>?,
+        @JsonProperty("subtitles") val subtitles: List<SubtitleSource>?
     )
 
-    data class StreamServer(
-        @JsonProperty("name") val name: String?,
-        @JsonProperty("url") val url: String?,
-        @JsonProperty("link") val link: String?
-    )
-
-    data class StreamSource(
-        @JsonProperty("file") val file: String?,
+    data class VideoSource(
         @JsonProperty("url") val url: String?,
         @JsonProperty("quality") val quality: String?
     )
-}
 
+    data class SubtitleSource(
+        @JsonProperty("vtt") val vtt: String?,
+        @JsonProperty("srt") val srt: String?,
+        @JsonProperty("language") val language: String?
+    )
+}
