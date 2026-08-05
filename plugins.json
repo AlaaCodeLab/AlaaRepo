@@ -1,0 +1,48 @@
+[
+    {
+        "fileHash": "sha256-33ce35ad79f66f256cb70a926519ab089a9d1621cc5d949436f85f75eb6db19f",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/AlaaCodeLab/AlaaRepo",
+        "fileSize": 38027,
+        "status": 1,
+        "language": "ar",
+        "authors": [
+            "AlaaCodeLab"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "version": 1,
+        "internalName": "CinemaBox",
+        "description": "\u0625\u0636\u0627\u0641\u0629 \u0633\u064a\u0646\u0645\u0627 \u0628\u0648\u0643\u0633 - Cinema Box",
+        "url": "https://raw.githubusercontent.com/AlaaCodeLab/AlaaRepo/builds/CinemaBox.cs3",
+        "name": "CinemaBox"
+    },
+    {
+        "iconUrl": "https://i3.wp.com/yt3.googleusercontent.com/ytc/AIdro_nCBArSmvOc6o-k2hTYpLtQMPrKqGtAw_nC20rxm70akA=s900-c-k-c0x00ffffff-no-rj?ssl=1",
+        "fileHash": "sha256-1093c23367834a2d47a94ea3267679a56fe3590bccfb3dd6dd1b701ba43b528b",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/AlaaCodeLab/AlaaRepo",
+        "fileSize": 999663,
+        "status": 1,
+        "language": "en",
+        "authors": [
+            "Phisher98",
+            "Hexated"
+        ],
+        "tvTypes": [
+            "AsianDrama",
+            "TvSeries",
+            "Anime",
+            "Movie",
+            "Cartoon",
+            "AnimeMovie"
+        ],
+        "version": 658,
+        "internalName": "Movics",
+        "description": "#1 best extension based on MultiAPI",
+        "url": "https://raw.githubusercontent.com/AlaaCodeLab/AlaaRepo/builds/Movics.cs3",
+        "name": "Movics"
+    }
+]

@@ -1,0 +1,8 @@
+{
+  "name": "AlaaRepo",
+  "description": "إضافات من تطوير AlaaCodeLab",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/AlaaCodeLab/AlaaRepo/builds/plugins.json"
+  ]
+}
