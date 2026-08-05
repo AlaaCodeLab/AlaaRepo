@@ -154,13 +154,11 @@ class CinemaBoxProvider : MainAPI() {
             if (linkUrl.isNotBlank()) {
                 val isHls = linkUrl.contains(".m3u8")
                 callback(
-                    ExtractorLink(
+                    newExtractorLink(
                         source = name,
                         name = name + (source.quality?.let { " ($it)" } ?: ""),
                         url = linkUrl,
-                        referer = "$mainUrl/",
-                        quality = Qualities.Unknown.value,
-                        isM3u8 = isHls
+                        type = if (isHls) ExtractorLinkType.HLS else ExtractorLinkType.VIDEO
                     )
                 )
                 foundLinks = true
@@ -172,13 +170,11 @@ class CinemaBoxProvider : MainAPI() {
         if (!directUrl.isNullOrBlank()) {
             val isHls = directUrl.contains(".m3u8")
             callback(
-                ExtractorLink(
+                newExtractorLink(
                     source = name,
                     name = name,
                     url = directUrl,
-                    referer = "$mainUrl/",
-                    quality = Qualities.Unknown.value,
-                    isM3u8 = isHls
+                    type = if (isHls) ExtractorLinkType.HLS else ExtractorLinkType.VIDEO
                 )
             )
             foundLinks = true
@@ -191,13 +187,11 @@ class CinemaBoxProvider : MainAPI() {
                 val linkUrl = match.value
                 val isHls = linkUrl.contains(".m3u8")
                 callback(
-                    ExtractorLink(
+                    newExtractorLink(
                         source = name,
                         name = name,
                         url = linkUrl,
-                        referer = "$mainUrl/",
-                        quality = Qualities.Unknown.value,
-                        isM3u8 = isHls
+                        type = if (isHls) ExtractorLinkType.HLS else ExtractorLinkType.VIDEO
                     )
                 )
                 foundLinks = true
