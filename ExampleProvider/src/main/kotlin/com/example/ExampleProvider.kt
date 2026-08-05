@@ -43,12 +43,12 @@ class ExampleProvider : MainAPI() {
                     }
                 )
             }
-            if (items.isNotEmpty() && !section.title.isNullEmpty()) {
+            if (items.isNotEmpty() && !section.title.isNullOrEmpty()) {
                 homeSections.add(HomePageList(section.title!!, items))
             }
         }
 
-        return HomePageResponse(homeSections)
+        return newHomePageResponse(homeSections, false)
     }
 
     // ================= 2. البحث (Search) =================
@@ -102,12 +102,11 @@ class ExampleProvider : MainAPI() {
             val episodesList = mutableListOf<Episode>()
             if (info.episodeId != null) {
                 episodesList.add(
-                    Episode(
-                        data = info.episodeId.toString(),
-                        name = title,
-                        season = 1,
-                        episode = 1
-                    )
+                    newEpisode(info.episodeId.toString()) {
+                        this.name = title
+                        this.season = 1
+                        this.episode = 1
+                    }
                 )
             }
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodesList) {
