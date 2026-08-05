@@ -3,8 +3,9 @@ package com.cinemabox
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
-import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.fasterxml.jackson.annotation.JsonProperty
+import java.net.URLEncoder
+import java.net.URLDecoder
 
 class CinemaBoxProvider : MainAPI() {
     override var mainUrl = "https://cinema.albox.co"
@@ -24,6 +25,9 @@ class CinemaBoxProvider : MainAPI() {
         "Referer" to mainUrl
     )
 
+    private fun String.encode(): String = try { URLEncoder.encode(this, "UTF-8") } catch (_: Exception) { this }
+    private fun String.decode(): String = try { URLDecoder.decode(this, "UTF-8") } catch (_: Exception) { this }
+
     // ================= 1. الصفحة الرئيسية (Main Page) =================
     override suspend fun getMainPage(
         page: Int,
@@ -38,29 +42,23 @@ class CinemaBoxProvider : MainAPI() {
             section.data?.forEach { item ->
                 val title = item.title ?: return@forEach
                 val id = item.id ?: return@forEach
-                val poster = item.style?.image
-                val isSeries = item.type == "SERIES"
-                val tvType = if (isSeries) TvType.TvSeries else TvType.Movie
+                val poster = item.style?.image ?: ""
+                val type = item.type ?: "MOVIE"
+                val desc = (item.description ?: "").encode()
+                val rating = item.rating?.toString() ?: ""
 
-                // حفظ البيانات الغنية لضمان عدم التداخل وعرض القصة والتفاصيل بالكامل
-                val payload = LoadDataPayload(
-                    id = id,
-                    title = title,
-                    poster = poster,
-                    type = item.type,
-                    description = item.description,
-                    rating = item.rating,
-                    genres = item.genres
-                )
-                val payloadJson = toJson(payload)
+                val tvType = if (type == "SERIES") TvType.TvSeries else TvType.Movie
+
+                // تضمين البيانات الغنية محلياً لضمان عدم التداخل وعرض القصة بالكامل
+                val itemDataUrl = "$mainUrl/api/v4/shows/episodes/$id/files?title=${title.encode()}&type=$type&poster=${poster.encode()}&desc=$desc&rating=$rating"
 
                 items.add(
                     if (tvType == TvType.TvSeries) {
-                        newTvSeriesSearchResponse(title, payloadJson, tvType) {
+                        newTvSeriesSearchResponse(title, itemDataUrl, tvType) {
                             this.posterUrl = poster
                         }
                     } else {
-                        newMovieSearchResponse(title, payloadJson, tvType) {
+                        newMovieSearchResponse(title, itemDataUrl, tvType) {
                             this.posterUrl = poster
                         }
                     }
@@ -82,26 +80,20 @@ class CinemaBoxProvider : MainAPI() {
         return response?.results?.mapNotNull { item ->
             val title = item.title ?: return@mapNotNull null
             val id = item.id ?: return@mapNotNull null
-            val poster = item.style?.image
-            val isSeries = item.type == "SERIES"
-            val tvType = if (isSeries) TvType.TvSeries else TvType.Movie
+            val poster = item.style?.image ?: ""
+            val type = item.type ?: "MOVIE"
+            val year = item.year?.toString() ?: ""
 
-            val payload = LoadDataPayload(
-                id = id,
-                title = title,
-                poster = poster,
-                type = item.type,
-                year = item.year
-            )
-            val payloadJson = toJson(payload)
+            val tvType = if (type == "SERIES") TvType.TvSeries else TvType.Movie
+            val itemDataUrl = "$mainUrl/api/v4/shows/episodes/$id/files?title=${title.encode()}&type=$type&poster=${poster.encode()}&year=$year"
 
             if (tvType == TvType.TvSeries) {
-                newTvSeriesSearchResponse(title, payloadJson, tvType) {
+                newTvSeriesSearchResponse(title, itemDataUrl, tvType) {
                     this.posterUrl = poster
                     this.year = item.year
                 }
             } else {
-                newMovieSearchResponse(title, payloadJson, tvType) {
+                newMovieSearchResponse(title, itemDataUrl, tvType) {
                     this.posterUrl = poster
                     this.year = item.year
                 }
@@ -111,29 +103,34 @@ class CinemaBoxProvider : MainAPI() {
 
     // ================= 3. تفاصيل العمل (Load Details) =================
     override suspend fun load(url: String): LoadResponse {
-        val payload = tryParseJson<LoadDataPayload>(url)
-        val showId = payload?.id ?: url.substringAfterLast("/").toIntOrNull()
+        val queryParams = url.substringAfter("?", "").split("&").associate {
+            val parts = it.split("=")
+            (parts.getOrNull(0) ?: "") to (parts.getOrNull(1)?.decode() ?: "")
+        }
+
+        val showId = url.substringBefore("?").split("/").getOrNull(url.substringBefore("?").split("/").size - 2)
+            ?.toIntOrNull()
+            ?: url.substringBefore("?").substringAfterLast("/").toIntOrNull()
             ?: throw ErrorLoadingException("Invalid Show ID")
 
         val filesUrl = "$mainUrl/api/v4/shows/episodes/$showId/files"
         val responseText = app.get(filesUrl, headers = commonHeaders).text
         val filesResponse = tryParseJson<FilesApiResponse>(responseText)
 
-        val title = payload?.title ?: filesResponse?.showTitle ?: "Cinema Box"
-        val poster = payload?.poster ?: filesResponse?.image
-        val description = payload?.description?.takeIf { it.isNotBlank() }
-        val ratingScore = payload?.rating?.let { Score.from(it, 10) }
-        val year = payload?.year
-        val genres = payload?.genres
+        val title = queryParams["title"]?.takeIf { it.isNotBlank() } ?: filesResponse?.showTitle ?: "Cinema Box"
+        val poster = queryParams["poster"]?.takeIf { it.isNotBlank() } ?: filesResponse?.image
+        val description = queryParams["desc"]?.takeIf { it.isNotBlank() }
+        val ratingScore = queryParams["rating"]?.toDoubleOrNull()?.let { Score.from(it, 10) }
+        val year = queryParams["year"]?.toIntOrNull()
+        val type = queryParams["type"] ?: filesResponse?.showType
 
-        val isMovie = (payload?.type == "MOVIE" || filesResponse?.showType == "MOVIE") || filesResponse?.episodes.isNullOrEmpty()
+        val isMovie = type == "MOVIE" || filesResponse?.showType == "MOVIE" || filesResponse?.episodes.isNullOrEmpty()
 
         return if (isMovie) {
             newMovieLoadResponse(title, url, TvType.Movie, filesUrl) {
                 this.posterUrl = poster
                 this.plot = description
                 this.year = year
-                this.tags = genres
                 this.score = ratingScore
             }
         } else {
@@ -170,7 +167,6 @@ class CinemaBoxProvider : MainAPI() {
                 this.posterUrl = poster
                 this.plot = description
                 this.year = year
-                this.tags = genres
                 this.score = ratingScore
             }
         }
@@ -242,17 +238,6 @@ class CinemaBoxProvider : MainAPI() {
     }
 
     // ================= Data Models =================
-    data class LoadDataPayload(
-        @JsonProperty("id") val id: Int,
-        @JsonProperty("title") val title: String,
-        @JsonProperty("poster") val poster: String? = null,
-        @JsonProperty("type") val type: String? = null,
-        @JsonProperty("description") val description: String? = null,
-        @JsonProperty("year") val year: Int? = null,
-        @JsonProperty("rating") val rating: Double? = null,
-        @JsonProperty("genres") val genres: List<String>? = null
-    )
-
     data class HomeResponse(
         @JsonProperty("sections") val sections: List<Section>?
     )
