@@ -80,6 +80,7 @@ class CinemaBoxProvider : MainAPI() {
 
     // ================= 3. تفاصيل العمل (Load Details) =================
     override suspend fun load(url: String): LoadResponse {
+        val extractedId = url.substringAfterLast("/")
         val response = app.get(url).parsedSafe<ShowDetailResponse>()
         val info = response?.postInfo ?: throw ErrorLoadingException("Failed to load show details")
 
@@ -93,8 +94,11 @@ class CinemaBoxProvider : MainAPI() {
         val ratingScore = info.rating?.value?.let { Score.from(it, 10) }
         val isMovie = info.type == "MOVIE"
 
+        // البديل في حال غياب episodeId: استخدام id الخاص بالعمل المباشر
+        val playableDataId = info.episodeId?.toString() ?: info.id?.toString() ?: extractedId
+
         return if (isMovie) {
-            newMovieLoadResponse(title, url, TvType.Movie, info.episodeId.toString()) {
+            newMovieLoadResponse(title, url, TvType.Movie, playableDataId) {
                 this.posterUrl = poster
                 this.backgroundPosterUrl = background
                 this.plot = description
@@ -104,15 +108,28 @@ class CinemaBoxProvider : MainAPI() {
             }
         } else {
             val episodesList = mutableListOf<Episode>()
+            
             if (info.episodeId != null) {
                 episodesList.add(
                     newEpisode(info.episodeId.toString()) {
-                        this.name = title
+                        this.name = "$title - الحلقة 1"
                         this.season = 1
                         this.episode = 1
+                        this.posterUrl = poster
+                    }
+                )
+            } else {
+                // ضمان وجود حلقة واحدة قابلة للتشغيل كحد أدنى بأسلوب سينمانا
+                episodesList.add(
+                    newEpisode(playableDataId) {
+                        this.name = "$title - الحلقة 1"
+                        this.season = 1
+                        this.episode = 1
+                        this.posterUrl = poster
                     }
                 )
             }
+
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodesList) {
                 this.posterUrl = poster
                 this.backgroundPosterUrl = background
@@ -133,9 +150,17 @@ class CinemaBoxProvider : MainAPI() {
     ): Boolean {
         if (data.isBlank() || data == "null") return false
 
-        val streamUrl = "$mainUrl/api/v4/episodes/$data"
-        val responseText = app.get(streamUrl).text
-        val episodeData = tryParseJson<EpisodeStreamResponse>(responseText)
+        val streamUrl = if (data.contains("http")) data else "$mainUrl/api/v4/episodes/$data"
+        val response = app.get(streamUrl, headers = mapOf("Referer" to mainUrl))
+        val responseText = response.text
+        var episodeData = tryParseJson<EpisodeStreamResponse>(responseText)
+
+        // محاولة إضافية (Fallback): إذا لم ترجع النقطة الرئيسية بيانات، نجرب نقطة العرض المباشرة
+        if (episodeData == null && !data.contains("http")) {
+            val fallbackUrl = "$mainUrl/api/v4/shows/$data"
+            val fallbackText = app.get(fallbackUrl, headers = mapOf("Referer" to mainUrl)).text
+            episodeData = tryParseJson<EpisodeStreamResponse>(fallbackText)
+        }
 
         var foundLinks = false
 
@@ -153,13 +178,16 @@ class CinemaBoxProvider : MainAPI() {
             val linkUrl = source.file ?: source.url ?: return@forEach
             if (linkUrl.isNotBlank()) {
                 val isHls = linkUrl.contains(".m3u8")
+                val qualityName = source.quality ?: "Default"
                 callback(
                     newExtractorLink(
                         source = name,
-                        name = name + (source.quality?.let { " ($it)" } ?: ""),
+                        name = "$name - $qualityName",
                         url = linkUrl,
                         type = if (isHls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
-                    )
+                    ) {
+                        getQualityFromName(qualityName)
+                    }
                 )
                 foundLinks = true
             }
@@ -180,8 +208,8 @@ class CinemaBoxProvider : MainAPI() {
             foundLinks = true
         }
 
-        // 4. Fallback: البحث بـ Regex عن أي روابط HLS (.m3u8) أو MP4 داخل النص
-        if (!foundLinks) {
+        // 4. Fallback بأسلوب سينمانا: البحث بـ Regex عن أي روابط HLS (.m3u8) أو MP4 داخل النص
+        if (!foundLinks && responseText.isNotBlank()) {
             val regex = Regex("""https?://[^\s"'<>]+?\.(?:m3u8|mp4)[^\s"'<>]*""")
             regex.findAll(responseText).forEach { match ->
                 val linkUrl = match.value
@@ -189,7 +217,7 @@ class CinemaBoxProvider : MainAPI() {
                 callback(
                     newExtractorLink(
                         source = name,
-                        name = name,
+                        name = "$name (Direct)",
                         url = linkUrl,
                         type = if (isHls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
                     )
@@ -198,7 +226,7 @@ class CinemaBoxProvider : MainAPI() {
             }
         }
 
-        return foundLinks || responseText.isNotBlank()
+        return foundLinks
     }
 
     // ================= Data Models =================
@@ -271,3 +299,4 @@ class CinemaBoxProvider : MainAPI() {
         @JsonProperty("quality") val quality: String?
     )
 }
+
