@@ -158,7 +158,7 @@ class CinemaBoxProvider : MainAPI() {
                         source = name,
                         name = name + (source.quality?.let { " ($it)" } ?: ""),
                         url = linkUrl,
-                        type = if (isHls) ExtractorLinkType.HLS else ExtractorLinkType.VIDEO
+                        type = if (isHls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
                     )
                 )
                 foundLinks = true
@@ -174,7 +174,7 @@ class CinemaBoxProvider : MainAPI() {
                     source = name,
                     name = name,
                     url = directUrl,
-                    type = if (isHls) ExtractorLinkType.HLS else ExtractorLinkType.VIDEO
+                    type = if (isHls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
                 )
             )
             foundLinks = true
@@ -191,7 +191,7 @@ class CinemaBoxProvider : MainAPI() {
                         source = name,
                         name = name,
                         url = linkUrl,
-                        type = if (isHls) ExtractorLinkType.HLS else ExtractorLinkType.VIDEO
+                        type = if (isHls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
                     )
                 )
                 foundLinks = true
