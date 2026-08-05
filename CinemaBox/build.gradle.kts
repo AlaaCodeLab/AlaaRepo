@@ -15,22 +15,17 @@ dependencies {
 version = 1
 
 cloudstream {
-    description = "استكشف أفلام ومسلسلات وشركات إنتاج TMDB بشكل تفصيلي"
+    description = "إضافة سينما بوكس - Cinema Box"
     authors = listOf("alaasroot")
     status = 1
     tvTypes = listOf("Movie", "TvSeries")
     requiresResources = true
-    language = "en"
-    iconUrl = "https://www.themoviedb.org/assets/2/apple-touch-icon-57ed4b3b0450fd5e9a0c20f34e814b82adaa1085c297d20d63e83e0537d1b8d1.png"
+    language = "ar"
 }
 
 android {
+    namespace = "com.cinemabox"
     defaultConfig {
-        buildConfigField(
-            "String",
-            "TMDB_API_KEY",
-            "\"${localProperties.getProperty("TMDB_API_KEY", "")}\""
-        )
     }
     buildFeatures {
         buildConfig = true
