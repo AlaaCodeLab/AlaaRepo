@@ -171,6 +171,9 @@ class CinemaBoxProvider : MainAPI() {
         val genres = postInfo?.genres
         val isSeries = postInfo?.type == "SERIES"
 
+        // معرف ملف الفيلم الأصلي المباشر للتشغيل (Movie Episode ID Fix)
+        val movieEpisodeId = postInfo?.episodeId?.toString() ?: showId
+
         val episodesList = mutableListOf<Episode>()
 
         if (isSeries) {
@@ -201,7 +204,7 @@ class CinemaBoxProvider : MainAPI() {
         val isMovie = !isSeries || episodesList.isEmpty()
 
         return if (isMovie) {
-            newMovieLoadResponse(title, url, TvType.Movie, "$mainUrl/api/v4/shows/episodes/$showId/files") {
+            newMovieLoadResponse(title, url, TvType.Movie, "$mainUrl/api/v4/shows/episodes/$movieEpisodeId/files") {
                 this.posterUrl = poster
                 this.plot = plotDesc
                 this.tags = genres
@@ -325,6 +328,7 @@ class CinemaBoxProvider : MainAPI() {
 
     data class DynamicPostInfo(
         @JsonProperty("id") val id: Int?,
+        @JsonProperty("episode_id") val episodeId: Int?,
         @JsonProperty("title") val title: String?,
         @JsonProperty("type") val type: String?,
         @JsonProperty("description") val description: String?,
