@@ -25,7 +25,7 @@ class CinemaBoxProvider : MainAPI() {
         "Referer" to mainUrl
     )
 
-    // ================= 1. الصفحة الرئيسية المنظمة (Clean Dynamic Main Page) =================
+    // ================= 1. الصفحة الرئيسية المنظمة (Clean Category Main Page) =================
     override suspend fun getMainPage(
         page: Int,
         request: MainPageRequest
@@ -63,7 +63,7 @@ class CinemaBoxProvider : MainAPI() {
             }
         } catch (_: Exception) {}
 
-        // 1.2 الأقسام التسعة الرئيسية المخصصة لمكتبة سينما بوكس بالكامل
+        // 1.2 الأقسام التسعة الرئيسية المخصصة من API الأقسام المباشر (/api/v4/categories/{id}/shows/more)
         val categories = listOf(
             "25" to "أفلام أجنبية",
             "24" to "أفلام عربية",
@@ -78,36 +78,33 @@ class CinemaBoxProvider : MainAPI() {
 
         categories.forEach { (catId, catName) ->
             try {
-                val catUrl = "$mainUrl/api/v4/shows/shows/dynamic/$catId"
+                val catUrl = "$mainUrl/api/v4/categories/$catId/shows/more?page_number=1&page_size=50"
                 val responseText = app.get(catUrl, headers = commonHeaders).text
-                val dynamicResponse = tryParseJson<DynamicShowResponse>(responseText)
+                val catItems = tryParseJson<CategoryApiResponse>(responseText)?.results
+                    ?: tryParseJson<CategoryApiResponse>(responseText)?.data
+                    ?: tryParseJson<List<ShowItem>>(responseText)
 
-                val items = ArrayList<SearchResponse>()
-                dynamicResponse?.sections?.forEach { sec ->
-                    sec.data?.forEach { item ->
-                        val title = item.title ?: return@forEach
-                        val id = item.id ?: return@forEach
-                        val poster = item.style?.image
-                        val isSeries = item.type == "SERIES" || catName.contains("مسلسلات")
-                        val tvType = if (isSeries) TvType.TvSeries else TvType.Movie
-                        val itemUrl = "$mainUrl/show/$id"
+                val items = catItems?.mapNotNull { item ->
+                    val title = item.title ?: return@mapNotNull null
+                    val id = item.id ?: return@mapNotNull null
+                    val poster = item.style?.image
+                    val isSeries = item.type == "SERIES" || catName.contains("مسلسلات")
+                    val tvType = if (isSeries) TvType.TvSeries else TvType.Movie
+                    val itemUrl = "$mainUrl/show/$id"
 
-                        items.add(
-                            if (tvType == TvType.TvSeries) {
-                                newTvSeriesSearchResponse(title, itemUrl, tvType) {
-                                    this.posterUrl = poster
-                                }
-                            } else {
-                                newMovieSearchResponse(title, itemUrl, tvType) {
-                                    this.posterUrl = poster
-                                }
-                            }
-                        )
+                    if (tvType == TvType.TvSeries) {
+                        newTvSeriesSearchResponse(title, itemUrl, tvType) {
+                            this.posterUrl = poster
+                        }
+                    } else {
+                        newMovieSearchResponse(title, itemUrl, tvType) {
+                            this.posterUrl = poster
+                        }
                     }
                 }
-                if (items.isNotEmpty()) {
-                    val cleanList = items.distinctBy { it.name }
-                    homeSections.add(HomePageList(catName, cleanList))
+
+                if (!items.isNullOrEmpty()) {
+                    homeSections.add(HomePageList(catName, items))
                 }
             } catch (_: Exception) {}
         }
@@ -284,6 +281,11 @@ class CinemaBoxProvider : MainAPI() {
         @JsonProperty("id") val id: Int?,
         @JsonProperty("title") val title: String?,
         @JsonProperty("section_type") val sectionType: String?,
+        @JsonProperty("data") val data: List<ShowItem>?
+    )
+
+    data class CategoryApiResponse(
+        @JsonProperty("results") val results: List<ShowItem>?,
         @JsonProperty("data") val data: List<ShowItem>?
     )
 
