@@ -25,7 +25,7 @@ class CinemaBoxProvider : MainAPI() {
         "Referer" to mainUrl
     )
 
-    // ================= 1. الصفحة الرئيسية المنظمة (Clean Category Main Page) =================
+    // ================= 1. الصفحة الرئيسية المنظمة (HAR Category Tree Layout) =================
     override suspend fun getMainPage(
         page: Int,
         request: MainPageRequest
@@ -63,17 +63,26 @@ class CinemaBoxProvider : MainAPI() {
             }
         } catch (_: Exception) {}
 
-        // 1.2 الأقسام التسعة الرئيسية المخصصة من API الأقسام المباشر (/api/v4/categories/{id}/shows/more)
+        // 1.2 الأقسام الـ 18 الرسمية والمستخرجة من ملف الـ HAR والمطابقة لسيرفر سينما بوكس
         val categories = listOf(
             "25" to "أفلام أجنبية",
             "24" to "أفلام عربية",
+            "26" to "أفلام تركية",
+            "27" to "أفلام هندية",
             "28" to "أفلام آسيوية",
             "31" to "أفلام أنمي",
-            "26" to "أفلام تركية",
+            "32" to "أفلام أنميشن",
             "47" to "أفلام مدبلجة",
             "33" to "مسلسلات أجنبية",
             "34" to "مسلسلات عربية",
-            "35" to "مسلسلات تركية"
+            "35" to "مسلسلات تركية",
+            "36" to "مسلسلات هندية",
+            "37" to "مسلسلات آسيوية",
+            "8" to "مسلسلات أنمي",
+            "39" to "مسلسلات كارتون",
+            "9" to "برامج تلفزيونية",
+            "44" to "وثائقيات",
+            "45" to "عروض مصارعة"
         )
 
         categories.forEach { (catId, catName) ->
@@ -88,7 +97,7 @@ class CinemaBoxProvider : MainAPI() {
                     val title = item.title ?: return@mapNotNull null
                     val id = item.id ?: return@mapNotNull null
                     val poster = item.style?.image
-                    val isSeries = item.type == "SERIES" || catName.contains("مسلسلات")
+                    val isSeries = item.type == "SERIES" || catName.contains("مسلسلات") || catName.contains("أنمي") || catName.contains("كارتون")
                     val tvType = if (isSeries) TvType.TvSeries else TvType.Movie
                     val itemUrl = "$mainUrl/show/$id"
 
@@ -104,7 +113,8 @@ class CinemaBoxProvider : MainAPI() {
                 }
 
                 if (!items.isNullOrEmpty()) {
-                    homeSections.add(HomePageList(catName, items))
+                    val cleanList = items.distinctBy { it.name }
+                    homeSections.add(HomePageList(catName, cleanList))
                 }
             } catch (_: Exception) {}
         }
