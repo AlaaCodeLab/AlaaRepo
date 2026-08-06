@@ -16,7 +16,7 @@ version = 1
 
 cloudstream {
     description = "إضافة سينما بوكس - Cinema Box"
-    authors = listOf("alaasroot")
+    authors = listOf("AlaaCodeLab")
     status = 1
     tvTypes = listOf("Movie", "TvSeries")
     requiresResources = true
