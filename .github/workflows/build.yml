@@ -1,7 +1,6 @@
 name: Build
 
-# https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#concurrency
-concurrency: 
+concurrency:
   group: "build"
   cancel-in-progress: true
 
@@ -17,6 +16,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,7 +28,7 @@ jobs:
         with:
           ref: "builds"
           path: "builds"
-      
+
       - name: Clean old builds
         run: rm -f $GITHUB_WORKSPACE/builds/*.cs3
 
@@ -46,10 +46,20 @@ jobs:
           cd $GITHUB_WORKSPACE/src
           chmod +x gradlew
           ./gradlew make makePluginsJson
-          cp **/build/*.cs3 $GITHUB_WORKSPACE/builds
-          cp build/plugins.json $GITHUB_WORKSPACE/builds
-          cp build/plugins.json $GITHUB_WORKSPACE/builds/repo.json 2>/dev/null || true
-          [ -f build/repo.json ] && cp build/repo.json $GITHUB_WORKSPACE/builds || true
+
+          cp **/build/*.cs3 $GITHUB_WORKSPACE/builds/
+          cp build/plugins.json $GITHUB_WORKSPACE/builds/plugins.json
+
+          cat > $GITHUB_WORKSPACE/builds/repo.json <<'EOF'
+          {
+            "name": "AlaaRepo",
+            "description": "إضافات من تطوير AlaaCodeLab",
+            "manifestVersion": 1,
+            "pluginLists": [
+              "https://raw.githubusercontent.com/AlaaCodeLab/AlaaRepo/builds/plugins.json"
+            ]
+          }
+          EOF
 
       - name: Push builds
         run: |
@@ -57,5 +67,5 @@ jobs:
           git config --local user.email "actions@github.com"
           git config --local user.name "GitHub Actions"
           git add .
-          git commit --amend -m "Build $GITHUB_SHA" || exit 0   # do not error if nothing to commit
+          git commit --amend -m "Build $GITHUB_SHA" || exit 0
           git push --force
