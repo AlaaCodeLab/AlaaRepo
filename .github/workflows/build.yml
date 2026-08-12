@@ -42,6 +42,27 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Build Plugins
+        env:
+          TMDB_API: ${{ secrets.TMDB_API }}
+          ZSHOW_API: ${{ secrets.ZSHOW_API }}
+          ANICHI_API: ${{ secrets.ANICHI_API }}
+          KissKh: ${{ secrets.KissKh }}
+          KisskhSub: ${{ secrets.KisskhSub }}
+          SUPERSTREAM_THIRD_API: ${{ secrets.SUPERSTREAM_THIRD_API }}
+          SUPERSTREAM_FOURTH_API: ${{ secrets.SUPERSTREAM_FOURTH_API }}
+          SUPERSTREAM_FIRST_API: ${{ secrets.SUPERSTREAM_FIRST_API }}
+          PROXYAPI: ${{ secrets.PROXYAPI }}
+          KAISVA: ${{ secrets.KAISVA }}
+          MOVIEBOX_SECRET_KEY_ALT: ${{ secrets.MOVIEBOX_SECRET_KEY_ALT }}
+          MOVIEBOX_SECRET_KEY_DEFAULT: ${{ secrets.MOVIEBOX_SECRET_KEY_DEFAULT }}
+          KAIMEG: ${{ secrets.KAIMEG }}
+          KAIDEC: ${{ secrets.KAIDEC }}
+          KAIENC: ${{ secrets.KAIENC }}
+          VideasyDEC: ${{ secrets.VideasyDEC }}
+          YFXENC: ${{ secrets.YFXENC }}
+          YFXDEC: ${{ secrets.YFXDEC }}
+          NuvFeb: ${{ secrets.NuvFeb }}
+          ANICHI_APP: ${{ secrets.ANICHI_APP }}
         run: |
           cd $GITHUB_WORKSPACE/src
           chmod +x gradlew
