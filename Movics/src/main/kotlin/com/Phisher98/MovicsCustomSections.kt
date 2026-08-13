@@ -48,8 +48,8 @@ object MovicsCustomSections {
                             id = item.optLong("id", System.currentTimeMillis() + index),
                             name = name,
                             category = category,
-                            mediaType = item.optString("mediaType", "movie")
-                                .takeIf { it == "movie" || it == "tv" } ?: "movie",
+                            mediaType = item.optString("mediaType", "general")
+                                .takeIf { it in setOf("general", "movie", "tv", "mixed") } ?: "general",
                             value = item.optString("value").trim(),
                         )
                     )

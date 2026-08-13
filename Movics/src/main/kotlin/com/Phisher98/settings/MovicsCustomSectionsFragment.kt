@@ -104,7 +104,7 @@ class MovicsCustomSectionsFragment(
         mediaSpinner.adapter = ArrayAdapter(
             requireContext(),
             android.R.layout.simple_spinner_dropdown_item,
-            listOf("Movies", "TV Shows"),
+            listOf("General / Auto", "Movies", "TV Shows", "Mixed: Movies + TV"),
         )
 
         categorySpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
@@ -112,8 +112,8 @@ class MovicsCustomSectionsFragment(
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, item: View?, position: Int, id: Long) {
                 val category = categories[position]
                 val fixedMediaType = when (category) {
-                    MovicsSectionCategory.MOVIES, MovicsSectionCategory.COLLECTIONS -> 0
-                    MovicsSectionCategory.TV_SHOWS, MovicsSectionCategory.NETWORKS -> 1
+                    MovicsSectionCategory.MOVIES, MovicsSectionCategory.COLLECTIONS -> 1
+                    MovicsSectionCategory.TV_SHOWS, MovicsSectionCategory.NETWORKS -> 2
                     else -> null
                 }
                 mediaSpinner.isEnabled = fixedMediaType == null
@@ -139,7 +139,12 @@ class MovicsCustomSectionsFragment(
                 val sectionName = name.text.toString().trim()
                 val rawValue = value.text.toString().trim()
                 val category = categories[categorySpinner.selectedItemPosition]
-                val mediaType = if (category == MovicsSectionCategory.NETWORKS || mediaSpinner.selectedItemPosition == 1) "tv" else "movie"
+                val mediaType = when (mediaSpinner.selectedItemPosition) {
+                    1 -> "movie"
+                    2 -> "tv"
+                    3 -> "mixed"
+                    else -> "general"
+                }
                 val error = validate(sectionName, category, rawValue)
                 if (error != null) {
                     showToast(error)
@@ -256,7 +261,13 @@ class MovicsCustomSectionsFragment(
             val section = items[position]
             holder.name.text = section.name
             holder.value.text = section.value
-            holder.type.text = "${section.category.label} • ${if (section.mediaType == "tv") "TV" else "Movies"}"
+            val mediaLabel = when (section.mediaType) {
+                "movie" -> "Movies"
+                "tv" -> "TV"
+                "mixed" -> "Mixed"
+                else -> "General"
+            }
+            holder.type.text = "${section.category.label} • $mediaLabel"
             holder.delete.setOnClickListener { onDelete(section) }
         }
 

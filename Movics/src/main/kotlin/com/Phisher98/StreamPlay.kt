@@ -365,7 +365,13 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
     }
 
     private fun JSONObject.toMediaSearch(defaultType: String): SearchResponse? {
-        val resolvedType = optString("media_type").takeIf { it == "movie" || it == "tv" } ?: defaultType
+        val resolvedType = optString("media_type").takeIf { it == "movie" || it == "tv" }
+            ?: defaultType.takeIf { it == "movie" || it == "tv" }
+            ?: when {
+                optString("title").isNotBlank() || optString("release_date").isNotBlank() -> "movie"
+                optString("name").isNotBlank() || optString("first_air_date").isNotBlank() -> "tv"
+                else -> "movie"
+            }
         val media = Media(
             id = optInt("id").takeIf { it > 0 },
             name = optString("name").takeIf { it.isNotBlank() },
@@ -411,12 +417,27 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
         filter: String,
     ): HomePageResponse {
         val values = section.value.split(',').map { it.trim() }.filter { it.isNotBlank() }.joinToString(",")
-        val (items, hasNext) = pagedMedia(
-            "/discover/${section.mediaType}?$filter=$values&sort_by=popularity.desc",
-            page,
-            section.mediaType,
+        val mediaTypes = when (section.mediaType) {
+            "movie" -> listOf("movie")
+            "tv" -> listOf("tv")
+            else -> listOf("movie", "tv")
+        }
+        val results = coroutineScope {
+            mediaTypes.map { mediaType ->
+                async {
+                    pagedMedia(
+                        "/discover/$mediaType?$filter=$values&sort_by=popularity.desc",
+                        page,
+                        mediaType,
+                    )
+                }
+            }.awaitAll()
+        }
+        return newHomePageResponse(
+            request.name,
+            results.flatMap { it.first }.distinctBy { it.url },
+            results.any { it.second },
         )
-        return newHomePageResponse(request.name, items, hasNext)
     }
 
     private suspend fun languageSection(
@@ -424,16 +445,23 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
         section: MovicsCustomSection,
         page: Int,
     ): HomePageResponse = coroutineScope {
-        val results = section.value.split(',').map { it.trim().lowercase() }.filter { it.isNotBlank() }
-            .distinct().map { language ->
+        val mediaTypes = when (section.mediaType) {
+            "movie" -> listOf("movie")
+            "tv" -> listOf("tv")
+            else -> listOf("movie", "tv")
+        }
+        val languages = section.value.split(',').map { it.trim().lowercase() }.filter { it.isNotBlank() }.distinct()
+        val results = languages.flatMap { language ->
+            mediaTypes.map { mediaType ->
                 async {
                     pagedMedia(
-                        "/discover/${section.mediaType}?with_original_language=$language&sort_by=popularity.desc",
+                        "/discover/$mediaType?with_original_language=$language&sort_by=popularity.desc",
                         page,
-                        section.mediaType,
+                        mediaType,
                     )
                 }
-            }.awaitAll()
+            }
+        }.awaitAll()
         val items = results.flatMap { it.first }.distinctBy { it.url }
         newHomePageResponse(request.name, items, results.any { it.second })
     }
@@ -492,7 +520,7 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
         return newMovieSearchResponse(
             personName,
             Data(id = personId, type = "person", filterType = mediaType, movicsCustom = true).toJson(),
-            TvType.Others,
+            TvType.TvSeries,
         ) {
             posterUrl = getImageUrl(optString("profile_path").takeIf { it.isNotBlank() && it != "null" })
         }
@@ -944,7 +972,7 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
 
         val birthday = json.optString("birthday").takeIf { it.isNotBlank() && it != "null" }
         val place = json.optString("place_of_birth").takeIf { it.isNotBlank() && it != "null" }
-        return newMovieLoadResponse(personName, url, TvType.Others, "") {
+        return newTvSeriesLoadResponse(personName, url, TvType.TvSeries, emptyList()) {
             posterUrl = getOriImageUrl(json.optString("profile_path").takeIf { it.isNotBlank() && it != "null" })
             year = birthday?.substringBefore('-')?.toIntOrNull()
             plot = json.optString("biography").takeIf { it.isNotBlank() }
@@ -954,7 +982,6 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
                 filterType?.let { if (it == "tv") "TV Shows" else "Movies" },
             )
             recommendations = works
-            comingSoon = true
         }
     }
 

@@ -2,7 +2,7 @@
 
 import java.util.Properties
 
-version = 654
+version = 655
 
 android {
     namespace = "com.phisher98"
