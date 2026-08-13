@@ -336,6 +336,7 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
         return runCatching {
             when (section.category) {
                 MovicsSectionCategory.PEOPLE -> personSection(request, section, page)
+                MovicsSectionCategory.PERSON_WORKS -> personWorksSection(request, section)
                 MovicsSectionCategory.MOVIES -> exactMediaSection(request, section.copy(mediaType = "movie"))
                 MovicsSectionCategory.TV_SHOWS -> exactMediaSection(request, section.copy(mediaType = "tv"))
                 MovicsSectionCategory.COLLECTIONS -> collectionSection(request, section)
@@ -396,6 +397,33 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
         for (index in 0 until length()) {
             optJSONObject(index)?.toMediaSearch(defaultType)?.let(::add)
         }
+    }
+
+    private suspend fun fetchPersonWorks(personId: Int, mediaType: String): List<SearchResponse> = coroutineScope {
+        val filterType = mediaType.takeIf { it == "movie" || it == "tv" }
+        val movies = async {
+            if (filterType == "tv") emptyList() else runCatching {
+                JSONObject(app.get(apiUrl(resolveApiBase(), "/person/$personId/movie_credits")).text)
+                    .optJSONArray("cast")?.mediaItems("movie").orEmpty()
+            }.getOrDefault(emptyList())
+        }
+        val shows = async {
+            if (filterType == "movie") emptyList() else runCatching {
+                JSONObject(app.get(apiUrl(resolveApiBase(), "/person/$personId/tv_credits")).text)
+                    .optJSONArray("cast")?.mediaItems("tv").orEmpty()
+            }.getOrDefault(emptyList())
+        }
+        (movies.await() + shows.await()).distinctBy { it.url }
+    }
+
+    private suspend fun personWorksSection(
+        request: MainPageRequest,
+        section: MovicsCustomSection,
+    ): HomePageResponse = coroutineScope {
+        val works = ids(section.value).map { personId ->
+            async { fetchPersonWorks(personId, section.mediaType) }
+        }.awaitAll().flatten().distinctBy { it.url }
+        newHomePageResponse(request.name, works, false)
     }
 
     private suspend fun pagedMedia(
@@ -949,33 +977,29 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
 
     private suspend fun loadPerson(url: String, data: Data, tmdbAPI: String): LoadResponse? {
         val personId = data.id ?: return null
-        val json = JSONObject(
-            app.get(apiUrl(tmdbAPI, "/person/$personId?append_to_response=combined_credits")).text
-        )
+        val filterType = data.filterType?.takeIf { it == "movie" || it == "tv" }
+        val (json, works) = coroutineScope {
+            val detail = async {
+                JSONObject(app.get(apiUrl(tmdbAPI, "/person/$personId")).text)
+            }
+            val credits = async { fetchPersonWorks(personId, filterType ?: "mixed") }
+            detail.await() to credits.await()
+        }
         val personName = json.optString("name").takeIf { it.isNotBlank() }
             ?: throw ErrorLoadingException("Invalid TMDB person")
-        val credits = json.optJSONObject("combined_credits")?.optJSONArray("cast") ?: JSONArray()
-        val filterType = data.filterType?.takeIf { it == "movie" || it == "tv" }
-        val workObjects = buildList {
-            for (index in 0 until credits.length()) {
-                val item = credits.optJSONObject(index) ?: continue
-                val mediaType = item.optString("media_type")
-                if (mediaType != "movie" && mediaType != "tv") continue
-                if (filterType != null && mediaType != filterType) continue
-                add(item)
-            }
-        }.sortedByDescending { it.optDouble("popularity", 0.0) }
-
-        val works = workObjects.mapNotNull { item ->
-            item.toMediaSearch(item.optString("media_type", filterType ?: "movie"))
-        }.distinctBy { it.url }
 
         val birthday = json.optString("birthday").takeIf { it.isNotBlank() && it != "null" }
         val place = json.optString("place_of_birth").takeIf { it.isNotBlank() && it != "null" }
+        val biography = json.optString("biography").takeIf { it.isNotBlank() }
+        val worksSummary = if (works.isEmpty()) {
+            "No TMDB works were returned for this person."
+        } else {
+            "${works.size} works are available in the Recommendations section."
+        }
         return newTvSeriesLoadResponse(personName, url, TvType.TvSeries, emptyList()) {
             posterUrl = getOriImageUrl(json.optString("profile_path").takeIf { it.isNotBlank() && it != "null" })
             year = birthday?.substringBefore('-')?.toIntOrNull()
-            plot = json.optString("biography").takeIf { it.isNotBlank() }
+            plot = listOfNotNull(biography, worksSummary).joinToString("\n\n")
             tags = listOfNotNull(
                 json.optString("known_for_department").takeIf { it.isNotBlank() },
                 place,

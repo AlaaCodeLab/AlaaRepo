@@ -122,6 +122,7 @@ class MovicsCustomSectionsFragment(
                     MovicsSectionCategory.LANGUAGE -> "Language code(s), for example: ko or ko,ja"
                     MovicsSectionCategory.TMDB_LINK -> "Example: https://www.themoviedb.org/movie/top-rated or /person"
                     MovicsSectionCategory.PEOPLE -> "One or more TMDB person IDs, for example: 287,1245"
+                    MovicsSectionCategory.PERSON_WORKS -> "TMDB person ID(s). Their movies/TV shows appear directly in this section."
                     MovicsSectionCategory.MOVIES, MovicsSectionCategory.TV_SHOWS -> "One or more exact TMDB title IDs"
                     else -> "One or more TMDB IDs separated with commas"
                 }

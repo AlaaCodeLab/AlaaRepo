@@ -7,6 +7,7 @@ import org.json.JSONObject
 
 enum class MovicsSectionCategory(val label: String) {
     PEOPLE("People"),
+    PERSON_WORKS("Person works"),
     MOVIES("Movies"),
     TV_SHOWS("TV Shows"),
     COLLECTIONS("Collections"),
