@@ -998,6 +998,7 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
         }
         return newTvSeriesLoadResponse(personName, url, TvType.TvSeries, emptyList()) {
             posterUrl = getOriImageUrl(json.optString("profile_path").takeIf { it.isNotBlank() && it != "null" })
+            comingSoon = false
             year = birthday?.substringBefore('-')?.toIntOrNull()
             plot = listOfNotNull(biography, worksSummary).joinToString("\n\n")
             tags = listOfNotNull(
