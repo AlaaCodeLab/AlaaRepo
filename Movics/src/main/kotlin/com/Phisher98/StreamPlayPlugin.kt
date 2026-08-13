@@ -63,7 +63,13 @@ class StreamPlayPlugin: Plugin() {
             mainStreamPlay,
             StreamPlayAnime()
         )
-        val savedSet = sharedPref.getStringSet("enabled_plugins_saved", null)
+        val savedSet = sharedPref.getStringSet("enabled_plugins_saved", null)?.mapTo(mutableSetOf()) {
+            when (it) {
+                "StreamPlay" -> "Movics"
+                "StreamPlay-Anime" -> "Movics-Anime"
+                else -> it
+            }
+        }
         val defaultEnabled = mainApis.map { it.name }.toSet()
         val enabledSet = savedSet ?: defaultEnabled
 

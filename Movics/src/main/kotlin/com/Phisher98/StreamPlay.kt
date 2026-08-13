@@ -44,11 +44,13 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URI
 import kotlin.time.Duration.Companion.milliseconds
 
 open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
-    override var name = "StreamPlay"
+    override var name = "Movics"
     override val hasMainPage = true
     override val instantLinkLoading = true
     override val hasChromecastSupport = true
@@ -237,7 +239,7 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
         }
     }
 
-    override val mainPage = mainPageOf(
+    private val builtInMainPage = listOf(
         "/trending/all/day?api_key=$apiKey&region=US" to "Trending",
         "/trending/movie/week?api_key=$apiKey&region=US&with_original_language=en" to "Popular Movies",
         "/trending/tv/week?api_key=$apiKey&region=US&with_original_language=en" to "Popular TV Shows",
@@ -259,6 +261,13 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
         "/discover/tv?api_key=$apiKey&with_original_language=ko" to "Korean Shows",
         "/discover/tv?api_key=$apiKey&with_genres=99" to "Documentary",
     )
+
+    override val mainPage by lazy {
+        val custom = MovicsCustomSections.load(sharedPref).map {
+            MovicsCustomSections.requestData(it.id) to it.name
+        }
+        mainPageOf(*(builtInMainPage + custom).toTypedArray())
+    }
 
     private fun getImageUrl(link: String?): String? {
         if (link == null) return null
@@ -292,6 +301,13 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        val customId = MovicsCustomSections.requestId(request.data)
+        if (customId != null) {
+            val section = MovicsCustomSections.load(sharedPref).firstOrNull { it.id == customId }
+                ?: return newHomePageResponse(request.name, emptyList(), false)
+            return getCustomMainPage(page, request, section)
+        }
+
         val tmdbAPI = resolveApiBase()
 
         val adultQuery = if (settingsForProvider.enableAdult) {
@@ -312,11 +328,261 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
         return newHomePageResponse(request.name, home)
     }
 
+    private suspend fun getCustomMainPage(
+        page: Int,
+        request: MainPageRequest,
+        section: MovicsCustomSection,
+    ): HomePageResponse {
+        return runCatching {
+            when (section.category) {
+                MovicsSectionCategory.PEOPLE -> personSection(request, section, page)
+                MovicsSectionCategory.MOVIES -> exactMediaSection(request, section.copy(mediaType = "movie"))
+                MovicsSectionCategory.TV_SHOWS -> exactMediaSection(request, section.copy(mediaType = "tv"))
+                MovicsSectionCategory.COLLECTIONS -> collectionSection(request, section)
+                MovicsSectionCategory.TMDB_LIST -> listSection(request, section)
+                MovicsSectionCategory.TMDB_LINK -> tmdbLinkSection(request, section, page)
+                MovicsSectionCategory.LANGUAGE -> languageSection(request, section, page)
+                MovicsSectionCategory.KEYWORDS -> discoverSection(request, section, page, "with_keywords")
+                MovicsSectionCategory.COMPANIES -> discoverSection(request, section, page, "with_companies")
+                MovicsSectionCategory.NETWORKS -> discoverSection(request, section.copy(mediaType = "tv"), page, "with_networks")
+                MovicsSectionCategory.GENRES -> discoverSection(request, section, page, "with_genres")
+            }
+        }.getOrElse { error ->
+            Log.e(TAG, "Custom section '${section.name}' failed: ${error.message}")
+            throw ErrorLoadingException("Unable to load ${section.name}: ${error.message ?: "TMDB error"}")
+        }
+    }
+
+    private fun ids(value: String): List<Int> = value.split(',')
+        .mapNotNull { it.trim().toIntOrNull() }
+        .filter { it > 0 }
+        .distinct()
+
+    private fun apiUrl(base: String, path: String, page: Int? = null): String {
+        val separator = if ('?' in path) '&' else '?'
+        val pageQuery = page?.let { "&page=$it" }.orEmpty()
+        return "$base$path${separator}api_key=$apiKey&language=$langCode$pageQuery"
+    }
+
+    private fun JSONObject.toMediaSearch(defaultType: String): SearchResponse? {
+        val resolvedType = optString("media_type").takeIf { it == "movie" || it == "tv" } ?: defaultType
+        val media = Media(
+            id = optInt("id").takeIf { it > 0 },
+            name = optString("name").takeIf { it.isNotBlank() },
+            title = optString("title").takeIf { it.isNotBlank() },
+            originalTitle = optString("original_title").takeIf { it.isNotBlank() },
+            originalName = optString("original_name").takeIf { it.isNotBlank() },
+            mediaType = resolvedType,
+            posterPath = optString("poster_path").takeIf { it.isNotBlank() && it != "null" },
+            voteAverage = optDouble("vote_average").takeIf { !it.isNaN() },
+        )
+        return newMovieSearchResponse(
+            media.title ?: media.name ?: media.originalTitle ?: media.originalName ?: return null,
+            Data(id = media.id, type = resolvedType, movicsCustom = true).toJson(),
+            if (resolvedType == "tv") TvType.TvSeries else TvType.Movie,
+        ) {
+            posterUrl = getImageUrl(media.posterPath)
+            score = Score.from10(media.voteAverage)
+        }
+    }
+
+    private fun JSONArray.mediaItems(defaultType: String): List<SearchResponse> = buildList {
+        for (index in 0 until length()) {
+            optJSONObject(index)?.toMediaSearch(defaultType)?.let(::add)
+        }
+    }
+
+    private suspend fun pagedMedia(
+        path: String,
+        page: Int,
+        defaultType: String,
+    ): Pair<List<SearchResponse>, Boolean> {
+        val base = resolveApiBase()
+        val json = JSONObject(app.get(apiUrl(base, path, page)).text)
+        val items = json.optJSONArray("results")?.mediaItems(defaultType).orEmpty()
+        val totalPages = json.optInt("total_pages", page)
+        return items to (page < totalPages)
+    }
+
+    private suspend fun discoverSection(
+        request: MainPageRequest,
+        section: MovicsCustomSection,
+        page: Int,
+        filter: String,
+    ): HomePageResponse {
+        val values = section.value.split(',').map { it.trim() }.filter { it.isNotBlank() }.joinToString(",")
+        val (items, hasNext) = pagedMedia(
+            "/discover/${section.mediaType}?$filter=$values&sort_by=popularity.desc",
+            page,
+            section.mediaType,
+        )
+        return newHomePageResponse(request.name, items, hasNext)
+    }
+
+    private suspend fun languageSection(
+        request: MainPageRequest,
+        section: MovicsCustomSection,
+        page: Int,
+    ): HomePageResponse = coroutineScope {
+        val results = section.value.split(',').map { it.trim().lowercase() }.filter { it.isNotBlank() }
+            .distinct().map { language ->
+                async {
+                    pagedMedia(
+                        "/discover/${section.mediaType}?with_original_language=$language&sort_by=popularity.desc",
+                        page,
+                        section.mediaType,
+                    )
+                }
+            }.awaitAll()
+        val items = results.flatMap { it.first }.distinctBy { it.url }
+        newHomePageResponse(request.name, items, results.any { it.second })
+    }
+
+    private suspend fun exactMediaSection(
+        request: MainPageRequest,
+        section: MovicsCustomSection,
+    ): HomePageResponse = coroutineScope {
+        val base = resolveApiBase()
+        val items = ids(section.value).map { id ->
+            async {
+                runCatching {
+                    JSONObject(app.get(apiUrl(base, "/${section.mediaType}/$id")).text)
+                        .toMediaSearch(section.mediaType)
+                }.getOrNull()
+            }
+        }.awaitAll().filterNotNull()
+        newHomePageResponse(request.name, items, false)
+    }
+
+    private suspend fun collectionSection(
+        request: MainPageRequest,
+        section: MovicsCustomSection,
+    ): HomePageResponse = coroutineScope {
+        val base = resolveApiBase()
+        val items = ids(section.value).map { id ->
+            async {
+                runCatching {
+                    JSONObject(app.get(apiUrl(base, "/collection/$id")).text)
+                        .optJSONArray("parts")?.mediaItems("movie").orEmpty()
+                }.getOrDefault(emptyList())
+            }
+        }.awaitAll().flatten().distinctBy { it.url }
+        newHomePageResponse(request.name, items, false)
+    }
+
+    private suspend fun listSection(
+        request: MainPageRequest,
+        section: MovicsCustomSection,
+    ): HomePageResponse = coroutineScope {
+        val base = resolveApiBase()
+        val items = ids(section.value).map { id ->
+            async {
+                runCatching {
+                    JSONObject(app.get(apiUrl(base, "/list/$id")).text)
+                        .optJSONArray("items")?.mediaItems(section.mediaType).orEmpty()
+                }.getOrDefault(emptyList())
+            }
+        }.awaitAll().flatten().distinctBy { it.url }
+        newHomePageResponse(request.name, items, false)
+    }
+
+    private fun JSONObject.toPersonSearch(mediaType: String): SearchResponse? {
+        val personId = optInt("id").takeIf { it > 0 } ?: return null
+        val personName = optString("name").takeIf { it.isNotBlank() } ?: return null
+        return newMovieSearchResponse(
+            personName,
+            Data(id = personId, type = "person", filterType = mediaType, movicsCustom = true).toJson(),
+            TvType.Others,
+        ) {
+            posterUrl = getImageUrl(optString("profile_path").takeIf { it.isNotBlank() && it != "null" })
+        }
+    }
+
+    private suspend fun personSection(
+        request: MainPageRequest,
+        section: MovicsCustomSection,
+        page: Int,
+    ): HomePageResponse = coroutineScope {
+        val base = resolveApiBase()
+        val personIds = ids(section.value)
+        val people: List<SearchResponse>
+        val hasNext: Boolean
+        if (personIds.isEmpty()) {
+            val json = JSONObject(app.get(apiUrl(base, "/person/popular", page)).text)
+            val array = json.optJSONArray("results") ?: JSONArray()
+            people = buildList {
+                for (index in 0 until array.length()) {
+                    array.optJSONObject(index)?.toPersonSearch(section.mediaType)?.let(::add)
+                }
+            }
+            hasNext = page < json.optInt("total_pages", page)
+        } else {
+            people = personIds.map { id ->
+                async {
+                    runCatching {
+                        JSONObject(app.get(apiUrl(base, "/person/$id")).text).toPersonSearch(section.mediaType)
+                    }.getOrNull()
+                }
+            }.awaitAll().filterNotNull()
+            hasNext = false
+        }
+        newHomePageResponse(request.name, people, hasNext)
+    }
+
+    private suspend fun tmdbLinkSection(
+        request: MainPageRequest,
+        section: MovicsCustomSection,
+        page: Int,
+    ): HomePageResponse {
+        val uri = URI(section.value.trim())
+        val segments = uri.path.split('/').filter { it.isNotBlank() }
+        val first = segments.getOrNull(0)?.lowercase() ?: throw IllegalArgumentException("Invalid TMDB link")
+        val second = segments.getOrNull(1)?.lowercase()
+        val numericId = second?.substringBefore('-')?.toIntOrNull()
+        return when (first) {
+            "person" -> if (numericId != null) {
+                personSection(request, section.copy(category = MovicsSectionCategory.PEOPLE, value = numericId.toString()), page)
+            } else {
+                val base = resolveApiBase()
+                val json = JSONObject(app.get(apiUrl(base, "/person/popular", page)).text)
+                val array = json.optJSONArray("results") ?: JSONArray()
+                val people = buildList {
+                    for (index in 0 until array.length()) array.optJSONObject(index)?.toPersonSearch(section.mediaType)?.let(::add)
+                }
+                newHomePageResponse(request.name, people, page < json.optInt("total_pages", page))
+            }
+            "collection" -> collectionSection(request, section.copy(value = numericId?.toString() ?: error("Collection ID missing")))
+            "list" -> listSection(request, section.copy(value = numericId?.toString() ?: error("List ID missing")))
+            "keyword" -> discoverSection(request, section.copy(value = numericId?.toString() ?: error("Keyword ID missing")), page, "with_keywords")
+            "company" -> discoverSection(request, section.copy(value = numericId?.toString() ?: error("Company ID missing")), page, "with_companies")
+            "network" -> discoverSection(request, section.copy(mediaType = "tv", value = numericId?.toString() ?: error("Network ID missing")), page, "with_networks")
+            "genre" -> discoverSection(request, section.copy(value = numericId?.toString() ?: error("Genre ID missing")), page, "with_genres")
+            "discover" -> {
+                val mediaType = second?.takeIf { it == "movie" || it == "tv" } ?: section.mediaType
+                val query = uri.rawQuery?.takeIf { it.isNotBlank() }
+                    ?: "sort_by=popularity.desc"
+                val (items, hasNext) = pagedMedia("/discover/$mediaType?$query", page, mediaType)
+                newHomePageResponse(request.name, items, hasNext)
+            }
+            "movie", "tv" -> {
+                if (numericId != null) {
+                    exactMediaSection(request, section.copy(mediaType = first, value = numericId.toString()))
+                } else {
+                    val endpoint = second?.replace('-', '_') ?: "popular"
+                    val (items, hasNext) = pagedMedia("/$first/$endpoint", page, first)
+                    newHomePageResponse(request.name, items, hasNext)
+                }
+            }
+            else -> throw IllegalArgumentException("Unsupported TMDB link path: /$first")
+        }
+    }
+
     private fun Media.toSearchResponse(type: String? = null): SearchResponse? {
+        val resolvedType = mediaType ?: type
         return newMovieSearchResponse(
             title ?: name ?: originalTitle ?: originalName ?: return null,
-            Data(id = id, type = mediaType ?: type).toJson(),
-            TvType.Movie,
+            Data(id = id, type = resolvedType).toJson(),
+            if (resolvedType == "tv") TvType.TvSeries else TvType.Movie,
         ) {
             this.posterUrl = getImageUrl(posterPath)
             this.score= Score.from10(voteAverage)
@@ -338,6 +604,9 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
         val tmdbAPI = resolveApiBase()
 
         val data = parseJson<Data>(url)
+        if (data.type == "person") {
+            return loadPerson(url, data, tmdbAPI)
+        }
         val type = getType(data.type)
 
         val cacheKey = "metadata_${data.id}_${data.type}_$langCode"
@@ -650,6 +919,45 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
         }
     }
 
+    private suspend fun loadPerson(url: String, data: Data, tmdbAPI: String): LoadResponse? {
+        val personId = data.id ?: return null
+        val json = JSONObject(
+            app.get(apiUrl(tmdbAPI, "/person/$personId?append_to_response=combined_credits")).text
+        )
+        val personName = json.optString("name").takeIf { it.isNotBlank() }
+            ?: throw ErrorLoadingException("Invalid TMDB person")
+        val credits = json.optJSONObject("combined_credits")?.optJSONArray("cast") ?: JSONArray()
+        val filterType = data.filterType?.takeIf { it == "movie" || it == "tv" }
+        val workObjects = buildList {
+            for (index in 0 until credits.length()) {
+                val item = credits.optJSONObject(index) ?: continue
+                val mediaType = item.optString("media_type")
+                if (mediaType != "movie" && mediaType != "tv") continue
+                if (filterType != null && mediaType != filterType) continue
+                add(item)
+            }
+        }.sortedByDescending { it.optDouble("popularity", 0.0) }
+
+        val works = workObjects.mapNotNull { item ->
+            item.toMediaSearch(item.optString("media_type", filterType ?: "movie"))
+        }.distinctBy { it.url }
+
+        val birthday = json.optString("birthday").takeIf { it.isNotBlank() && it != "null" }
+        val place = json.optString("place_of_birth").takeIf { it.isNotBlank() && it != "null" }
+        return newMovieLoadResponse(personName, url, TvType.Others, "") {
+            posterUrl = getOriImageUrl(json.optString("profile_path").takeIf { it.isNotBlank() && it != "null" })
+            year = birthday?.substringBefore('-')?.toIntOrNull()
+            plot = json.optString("biography").takeIf { it.isNotBlank() }
+            tags = listOfNotNull(
+                json.optString("known_for_department").takeIf { it.isNotBlank() },
+                place,
+                filterType?.let { if (it == "tv") "TV Shows" else "Movies" },
+            )
+            recommendations = works
+            comingSoon = true
+        }
+    }
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -786,6 +1094,8 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
         val type: String? = null,
         val aniId: String? = null,
         val malId: Int? = null,
+        val filterType: String? = null,
+        val movicsCustom: Boolean = false,
     )
 
     data class Results(

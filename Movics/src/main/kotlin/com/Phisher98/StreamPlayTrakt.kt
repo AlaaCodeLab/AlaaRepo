@@ -8,15 +8,45 @@ import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.HomePageResponse
+import com.lagradost.cloudstream3.LoadResponse
+import com.lagradost.cloudstream3.MainPageRequest
+import com.lagradost.cloudstream3.ErrorLoadingException
+import com.lagradost.cloudstream3.mainPageOf
 import com.lagradost.cloudstream3.app
 
 class StreamPlayTrakt(private val sharedPref: SharedPreferences) : TraktProvider() {
-    override var name = "StreamPlay"
+    override var name = "Movics"
     override var supportedTypes = setOf(TvType.Movie, TvType.TvSeries, TvType.AsianDrama, TvType.Anime)
     override var lang = "en"
     override val supportedSyncNames = setOf(SyncIdName.Trakt)
     override val hasMainPage = true
     override val hasQuickSearch = false
+
+    override val mainPage by lazy {
+        super.mainPage + mainPageOf(
+            *MovicsCustomSections.load(sharedPref).map {
+                MovicsCustomSections.requestData(it.id) to it.name
+            }.toTypedArray()
+        )
+    }
+
+    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        return if (MovicsCustomSections.requestId(request.data) != null) {
+            StreamPlay(sharedPref).getMainPage(page, request)
+        } else {
+            super.getMainPage(page, request)
+        }
+    }
+
+    override suspend fun load(url: String): LoadResponse {
+        val custom = runCatching { org.json.JSONObject(url).optBoolean("movicsCustom", false) }.getOrDefault(false)
+        return if (custom) {
+            StreamPlay(sharedPref).load(url) ?: throw ErrorLoadingException("Unable to load custom TMDB item")
+        } else {
+            super.load(url)
+        }
+    }
 
     override suspend fun loadLinks(
         data: String,

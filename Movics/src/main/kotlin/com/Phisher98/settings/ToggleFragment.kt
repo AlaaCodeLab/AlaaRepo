@@ -126,7 +126,13 @@ class ToggleFragment(
         }
 
         val savedKey = "enabled_plugins_saved"
-        val savedSet = sharedPref.getStringSet(savedKey, null)
+        val savedSet = sharedPref.getStringSet(savedKey, null)?.mapTo(mutableSetOf()) {
+            when (it) {
+                "StreamPlay" -> "Movics"
+                "StreamPlay-Anime" -> "Movics-Anime"
+                else -> it
+            }
+        }
         val defaultEnabled = apis.map { it.name }.toSet()
         val currentSet = savedSet?.toSet() ?: defaultEnabled
 

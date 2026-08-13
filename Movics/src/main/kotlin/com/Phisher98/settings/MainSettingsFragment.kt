@@ -78,6 +78,7 @@ class MainSettingsFragment(
         val stremioaddon: ImageView = view.findView("stremioaddons")
         val stremioaddonstreams: ImageView = view.findView("stremioaddonstreams")
         val performance: ImageView = view.findView("performance")
+        val customSections: ImageView = view.findView("customSections")
 
         val loginRow: View = view.findView("loginRow")
         val wyzieRow: View = view.findView("wyzieRow")
@@ -87,6 +88,7 @@ class MainSettingsFragment(
         val stremioaddonsRow: View = view.findView("stremioaddonsRow")
         val stremioaddonstreamsRow: View = view.findView("stremioaddonstreamsRow")
         val performanceRow: View = view.findView("performanceRow")
+        val customSectionsRow: View = view.findView("customSectionsRow")
 
         val saveIcon: ImageView = view.findView("saveIcon")
 
@@ -102,6 +104,7 @@ class MainSettingsFragment(
         stremioaddon.setImageDrawable(getDrawable("settings_icon"))
         stremioaddonstreams.setImageDrawable(getDrawable("settings_icon"))
         performance.setImageDrawable(getDrawable("settings_icon"))
+        customSections.setImageDrawable(getDrawable("settings_icon"))
         saveIcon.setImageDrawable(getDrawable("save_icon"))
         sourceToggleIcon.setImageDrawable(getDrawable("settings_icon"))
 
@@ -113,6 +116,7 @@ class MainSettingsFragment(
         stremioaddonsRow.background = getDrawable("settings_item_background")
         stremioaddonstreamsRow.background = getDrawable("settings_item_background")
         performanceRow.background = getDrawable("settings_item_background")
+        customSectionsRow.background = getDrawable("settings_item_background")
         sourceToggleRow.background = getDrawable("settings_item_background")
 
         val isTrakt = sharedPref.getBoolean("use_trakt_source", false)
@@ -160,6 +164,10 @@ class MainSettingsFragment(
 
         stremioaddonsRow.setOnClickListener {
             showSubFragment({ cb -> StreamPlayStremioCatelogFrag(plugin, sharedPref, cb) }, "stremio_bottom_sheet_layout")
+        }
+
+        customSectionsRow.setOnClickListener {
+            showSubFragment({ cb -> MovicsCustomSectionsFragment(plugin, sharedPref, cb) }, "movics_custom_sections")
         }
 
         stremioaddonstreamsRow.setOnClickListener {

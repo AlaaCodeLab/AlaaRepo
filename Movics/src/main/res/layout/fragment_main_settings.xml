@@ -28,7 +28,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="StreamPlay Settings"
+                android:text="Movics Settings"
                 android:textSize="22sp"
                 android:textColor="#FFFFFF"
                 android:textStyle="bold" />
@@ -275,6 +275,51 @@
                 android:clickable="false" />
         </LinearLayout>
 
+        <!-- Custom TMDB home sections -->
+        <LinearLayout
+            android:id="@+id/customSectionsRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:orientation="horizontal"
+            android:padding="16dp"
+            android:gravity="center_vertical"
+            android:clickable="true"
+            android:focusable="true"
+            android:nextFocusUp="@id/wyzieRow">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Custom Home Sections"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Add browsable People, lists, genres, companies and other TMDB sections"
+                    android:textColor="#AAAAAA"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <ImageView
+                android:id="@+id/customSections"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_marginStart="16dp"
+                android:clickable="false"
+                android:focusable="false" />
+        </LinearLayout>
+
         <!-- 5. Stremio Catalog Addons Card -->
         <LinearLayout
             android:id="@+id/stremioaddonsRow"
@@ -286,7 +331,7 @@
             android:gravity="center_vertical"
             android:clickable="true"
             android:focusable="true"
-            android:nextFocusUp="@id/wyzieRow">
+            android:nextFocusUp="@id/customSectionsRow">
 
             <LinearLayout
                 android:layout_width="0dp"
