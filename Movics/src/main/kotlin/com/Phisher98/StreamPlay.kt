@@ -47,6 +47,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
+import java.net.URLEncoder
 import kotlin.time.Duration.Companion.milliseconds
 
 open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
@@ -975,8 +976,26 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
         }
     }
 
+    private suspend fun resolvePersonId(data: Data, tmdbAPI: String): Int? {
+        val personName = data.personName?.takeIf { it.isNotBlank() } ?: return null
+        val query = URLEncoder.encode(personName, "UTF-8")
+        val results = JSONObject(app.get(apiUrl(tmdbAPI, "/search/person?query=$query")).text)
+            .optJSONArray("results") ?: return null
+        val candidates = buildList {
+            for (index in 0 until results.length()) {
+                results.optJSONObject(index)?.let(::add)
+            }
+        }
+        val exact = candidates.filter { it.optString("name").equals(personName, ignoreCase = true) }
+        val image = data.personImage?.takeIf { it.isNotBlank() }
+        return (exact.firstOrNull { candidate ->
+            val path = candidate.optString("profile_path").takeIf { it.isNotBlank() && it != "null" }
+            path != null && image?.endsWith(path) == true
+        } ?: exact.firstOrNull() ?: candidates.firstOrNull())?.optInt("id")?.takeIf { it > 0 }
+    }
+
     private suspend fun loadPerson(url: String, data: Data, tmdbAPI: String): LoadResponse? {
-        val personId = data.id ?: return null
+        val personId = data.id ?: resolvePersonId(data, tmdbAPI) ?: return null
         val filterType = data.filterType?.takeIf { it == "movie" || it == "tv" }
         val (json, works) = coroutineScope {
             val detail = async {
@@ -1147,6 +1166,8 @@ open class StreamPlay(val sharedPref: SharedPreferences? = null) : MainAPI() {
         val aniId: String? = null,
         val malId: Int? = null,
         val filterType: String? = null,
+        val personName: String? = null,
+        val personImage: String? = null,
         val movicsCustom: Boolean = false,
     )
 
